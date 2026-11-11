@@ -1,0 +1,92 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage[margin=2cm]{geometry}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\setlist[description]{leftmargin=0pt,itemsep=4pt}
+
+\begin{document}
+
+\begin{center}
+  {\large\bfseries Universidad Técnica Estatal de Quevedo\par}
+  {Facultad de Ciencias de la Computación -- Carrera de Software\par}
+  \vspace{4pt}
+  {Aplicaciones Distribuidas (ISR-701) -- Séptimo nivel, paralelo B\par}
+  \vspace{12pt}
+  {\Large\bfseries FORM-TL-01: Notas del taller\par}
+  \vspace{4pt}
+  {\large Modelado de comunicación entre procesos distribuidos\par}
+  \vspace{10pt}
+  Benites Pérez Dariem Alberto \quad Bueno Troya Erwin Daniel \quad Mendoza Villarroel Elian Jossue\par
+  Docente: Gleiston Guerrero Ulloa, PhD\par
+  11 de noviembre de 2026\par
+\end{center}
+
+\section{Escenario y procesos}
+
+El escenario que nos tocó es un sistema de reservas de vuelos. Usamos los cuatro procesos que propone la guía:
+
+\begin{description}
+  \item[P1, Cliente.] La app donde el usuario busca vuelos y reserva. Solo hace de cliente.
+  \item[P2, Servidor de aplicación.] El servicio de reservas. Es servidor para el cliente y, al mismo tiempo, cliente del servicio de pagos y de la base de datos.
+  \item[P3, Servicio de pagos.] Cobra con un token de la tarjeta. Atiende llamadas gRPC.
+  \item[P4, Base de datos.] PostgreSQL, guarda vuelos, asientos y reservas.
+\end{description}
+
+El modelo es cliente-servidor en capas: el cliente nunca habla directo con pagos ni con la base de datos, todo pasa por P2. Para PE-U1 el cliente y el servidor de aplicación se programarán en Python con sockets, y el servicio de pagos con gRPC (\texttt{grpcio}), como indica el material de la semana 3.
+
+\section{Diagrama de comunicación}
+
+El archivo editable está en \texttt{diagrama/diagrama-comunicacion.drawio}. Las flechas continuas son síncronas y las discontinuas, asíncronas. El orden de una reserva es 3, 4, 5, 6 y la respuesta de la 3.
+
+\begin{figure}[h]
+  \centering
+  \IfFileExists{../diagrama/diagrama-comunicacion.pdf}
+    {\includegraphics[width=\textwidth,height=0.75\textheight,keepaspectratio]{../diagrama/diagrama-comunicacion.pdf}}
+    {\IfFileExists{../diagrama/diagrama-comunicacion.png}
+      {\includegraphics[width=\textwidth,height=0.75\textheight,keepaspectratio]{../diagrama/diagrama-comunicacion.png}}
+      {\fbox{\parbox{0.9\textwidth}{\centering Falta \texttt{diagrama/diagrama-comunicacion.pdf}.}}}}
+  \caption{Comunicación entre los procesos del sistema de reservas de vuelos.}
+\end{figure}
+
+\section{Interacciones}
+
+\IfFileExists{interacciones.tex}{\input{interacciones}}{Falta el archivo \texttt{notas/interacciones.tex}.}
+
+\section{Exposición: preguntas y respuestas}
+
+El ingeniero envió el taller para trabajar en casa. Hasta la fecha de esta entrega no hemos expuesto el diagrama, así que todavía no hay preguntas de otros equipos. Si se programa la exposición, aquí se agregarán las preguntas que recibamos y lo que respondimos.
+
+\subsection{Preguntas críticas que preparamos}
+
+Para revisar el diseño nos hicimos estas preguntas antes de exponer:
+
+\begin{description}[style=nextline]
+  \item[¿Qué pasa con la reserva si el servicio de pagos no responde?] El servidor espera como máximo 3 segundos (deadline de gRPC) y reintenta una vez con la misma clave de idempotencia, así que pagos no cobra dos veces. Si tampoco responde, la reserva se queda en PENDIENTE, el cliente recibe ``pago no confirmado'' y el asiento se libera solo cuando pasan los 10 minutos.
+
+  \item[¿Qué pasa si dos clientes reservan el mismo asiento al mismo tiempo?] La interacción 4 bloquea la fila del asiento dentro de una transacción. El primero que llega se queda con el asiento y el segundo recibe ``asiento no disponible''. Aquí preferimos consistencia antes que disponibilidad.
+
+  \item[¿Y si se cae el servidor después de cobrar, pero antes de confirmar?] La reserva queda en PENDIENTE con su clave de pago. Al reiniciar, el servidor revisa las reservas pendientes y le pregunta a pagos por esa clave: si el cobro existe confirma la reserva, y si no, la cancela.
+
+  \item[¿Por qué sockets entre el cliente y el servidor y no una API REST?] La guía pide una interacción con sockets y es lo que vamos a programar en PE-U1. Con la conexión abierta, el servidor puede mandar avisos sin que el cliente pregunte (interacción 7). La desventaja es que nosotros definimos el formato de los mensajes y manejamos las reconexiones.
+
+  \item[¿Por qué el pago es síncrono y no va por una cola de mensajes?] Porque el usuario espera la confirmación en ese momento. Con una cola habría que agregar otro proceso, el broker, y avisar del resultado después. Eso conviene si el pago tarda mucho, como una transferencia bancaria, pero no para un cobro con tarjeta.
+\end{description}
+
+\section{Declaración de uso de inteligencia artificial}
+
+\noindent
+\begin{tabularx}{\textwidth}{>{\bfseries}l >{\raggedright\arraybackslash}X}
+  Herramienta: & Claude (Anthropic), modelo Claude Opus 5.5, en la aplicación Claude Code. \\
+  Para qué se usó: & Para encontrar el diseño de la comunicación: qué mecanismo, protocolo y middleware usa cada interacción y por qué. Hizo un diagrama de referencia que redibujamos en draw.io, ayudo a corregir la tabla de interacciones, las justificaciones y las preguntas preparadas de estas notas. \\[4pt]
+  Cómo se verificó: & Comparamos cada decisión con el material de la semana 3 (sockets, RPC, middleware y la tabla de sockets TCP frente a gRPC) y con la guía del taller: al menos cuatro procesos, una interacción con sockets y otra con RPC.
+\end{tabularx}
+
+\end{document}
